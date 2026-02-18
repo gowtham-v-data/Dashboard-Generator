@@ -1,0 +1,420 @@
+{
+  "name": "Dashboard",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -480,
+        0
+      ],
+      "id": "83f1950c-b76d-4a11-b4ac-efa3cac10b33",
+      "name": "Webhook",
+      "webhookId": "05d016d7-3306-4a23-83d7-a2186df9c548"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "datafile",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        0
+      ],
+      "id": "fb52912f-6bd6-43e4-8b25-6e68a72cb9ff",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a senior enterprise business data analyst building an executive-level BI dashboard.\n\nDataset Summary:\n\nTotal Rows:\n{{ $json.totalRows }}\n\nColumns:\n{{ $json.columns }}\n\nNumeric Columns:\n{{ $json.numericColumns }}\n\nSample Data:\n{{ $json.sampleData }}\n\nYour responsibilities:\n\n1. Detect the business domain of this dataset \n   (e.g., Sales, Finance, HR, Healthcare, Operations, Marketing, Classification, Forecasting, etc.)\n\n2. Generate a professional executive dashboard title \n   suitable for C-level reporting (short, powerful, business-ready).\n\n3. Identify 5–8 high-value KPIs relevant for decision-makers.\n\n4. Detect important patterns, correlations, trends, or segment insights.\n\n5. Suggest best chart types for executive visualization \n   (Bar, Line, Pie, Donut, Heatmap, Scatter, KPI Cards, Trend Line, etc.)\n\n6. Highlight major business risks, data quality issues, or analytical limitations.\n\nIMPORTANT RULES:\n- Think like a Power BI / Tableau consultant.\n- Focus on business insights, not technical explanations.\n- Keep responses executive-ready and concise.\n- Do NOT include explanations outside JSON.\n- Return ONLY valid JSON.\n\nReturn in this structure:\n\n{\n  \"dashboardTitle\": \"\",\n  \"datasetType\": \"\",\n  \"kpis\": [],\n  \"patterns\": [],\n  \"chartSuggestions\": [],\n  \"risks\": []\n}\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        752,
+        -368
+      ],
+      "id": "70a1cb30-c96c-4e18-ac9b-9d20dea6b060",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1024,
+        352
+      ],
+      "id": "208d1814-c11d-4734-b19e-743b69245ee8",
+      "name": "Merge",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = items.map(item => item.json);\n\nif (data.length === 0) {\n  return [{ json: { error: \"Dataset is empty\" } }];\n}\n\n// Detect numeric columns\nconst columns = Object.keys(data[0]);\n\nconst numericColumns = columns.filter(col => {\n  const numericCount = data.filter(row => {\n    const value = row[col];\n    return value !== \"\" && !isNaN(parseFloat(value));\n  }).length;\n\n  return numericCount > data.length * 0.7;\n});\n\n// Choose first meaningful numeric column (skip ID-like)\nconst targetColumn = numericColumns.find(col =>\n  col.toLowerCase() !== \"passengerid\"\n);\n\nif (!targetColumn) {\n  return [{ json: { message: \"No suitable numeric column for prediction\" } }];\n}\n\n// Prepare values\nconst values = data\n  .map(row => parseFloat(row[targetColumn]))\n  .filter(v => !isNaN(v));\n\n// Simple linear trend prediction\nconst n = values.length;\n\nlet sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;\n\nfor (let i = 0; i < n; i++) {\n  sumX += i;\n  sumY += values[i];\n  sumXY += i * values[i];\n  sumXX += i * i;\n}\n\nconst slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);\nconst intercept = (sumY - slope * sumX) / n;\n\nconst nextIndex = n;\nconst predictedValue = slope * nextIndex + intercept;\n\nreturn [{\n  json: {\n    forecastColumn: targetColumn,\n    predictedNextValue: Number(predictedValue.toFixed(2))\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        384
+      ],
+      "id": "ba5f68db-d6c3-477c-a5b0-04b3890d9602",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get AI raw output\nlet raw = items[0].json.output || items[0].json.text || items[0].json.response;\n\nif (!raw) {\n  return [{ json: { error: \"No AI output found\" } }];\n}\n\n// Remove markdown + unwanted text\nraw = raw\n  .replace(/```json/g, \"\")\n  .replace(/```/g, \"\")\n  .replace(/^json/i, \"\")\n  .trim();\n\nlet parsed;\n\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  return [{\n    json: {\n      error: \"Invalid JSON from AI\",\n      rawOutput: raw\n    }\n  }];\n}\n\nreturn [{\n  json: parsed\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -368
+      ],
+      "id": "cdad2297-b788-47e8-9c1b-085f6cb826f2",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\n\n# Convert n8n items to DataFrame\ndata = [item[\"json\"] for item in items]\ndf = pd.DataFrame(data)\n\nif df.empty:\n    return [{\"json\": {\"error\": \"Dataset is empty\"}}]\n\n# 🔥 Convert numeric-like columns properly\nfor col in df.columns:\n    df[col] = pd.to_numeric(df[col], errors=\"ignore\")\n\n# ===== Basic Info =====\ntotal_rows = len(df)\ncolumns = df.columns.tolist()\n\n# Detect numeric columns correctly\nnumeric_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()\n\n# ===== Statistics =====\nstats = {}\nfor col in numeric_columns:\n    stats[col] = {\n        \"average\": round(float(df[col].mean()), 2),\n        \"min\": float(df[col].min()),\n        \"max\": float(df[col].max())\n    }\n\n# ===== Anomaly Detection (IQR – More Stable than Z-score) =====\nanomalies = {}\n\nfor col in numeric_columns:\n    Q1 = df[col].quantile(0.25)\n    Q3 = df[col].quantile(0.75)\n    IQR = Q3 - Q1\n\n    lower = Q1 - 1.5 * IQR\n    upper = Q3 + 1.5 * IQR\n\n    outliers = df[(df[col] < lower) | (df[col] > upper)]\n\n    if not outliers.empty:\n        anomalies[col] = outliers.head(5).to_dict(orient=\"records\")\n\nreturn [{\n    \"json\": {\n        \"totalRows\": total_rows,\n        \"columns\": columns,\n        \"numericColumns\": numeric_columns,\n        \"stats\": stats,\n        \"anomalyColumns\": list(anomalies.keys()),\n        \"anomalies\": anomalies,\n        \"sampleData\": df.head(5).to_dict(orient=\"records\")\n    }\n}]\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "72815417-8149-47c4-9533-d6348613f207",
+      "name": "Code in Python (Beta)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = items[0].json;\nlet dashboardtile = $input.first().json.dashboardTitle;\nconst survivalRate = data.stats?.Survived?.average || 0;\nconst avgRevenue = data.stats?.Fare?.average || 0;\nconst totalRevenue = avgRevenue * data.totalRows;\n\nconst premiumCustomers = data.sampleData\n  .filter(d => d.Pclass == 1).length;\n\nreturn [{\n  json: {\n    ...data,\n    dashboardtile,\n    businessKPIs: {\n      totalCustomers: data.totalRows,\n      successRate: Number((survivalRate * 100).toFixed(2)) + \"%\",\n      averageRevenue: \"$\" + avgRevenue,\n      estimatedTotalRevenue: \"$\" + totalRevenue.toFixed(0),\n      premiumSegmentSize: premiumCustomers\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        192
+      ],
+      "id": "38b9ab0b-7e38-4f54-b929-2987fa79ed6a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = items[0].json;\n\n// ================= SAFE VALUES =================\nconst title = data.dashboardTitle || \"Enterprise Dashboard\";\n\nconst totalRows = data.businessKPIs?.totalCustomers || 0;\n\n// Remove % and convert back to number\nconst survivalRate = data.businessKPIs?.successRate\n  ? Number(data.businessKPIs.successRate.replace(\"%\",\"\"))\n  : 0;\n\n// Remove $ and convert back to number\nconst avgFare = data.businessKPIs?.averageRevenue\n  ? Number(data.businessKPIs.averageRevenue.replace(\"$\",\"\"))\n  : 0;\n\nconst estimatedRevenue = data.businessKPIs?.estimatedTotalRevenue\n  ? Number(data.businessKPIs.estimatedTotalRevenue.replace(\"$\",\"\"))\n  : 0;\n\nconst forecast = Number(data.predictedNextValue || 0);\n\n\n\n// ===== Sample based quick analytics =====\nconst sample = data.sampleData || [];\n\nconst survivedCount = sample.filter(d => d.Survived == 1).length;\nconst deadCount = sample.filter(d => d.Survived == 0).length;\n\nconst maleCount = sample.filter(d => d.Sex === \"male\").length;\nconst femaleCount = sample.filter(d => d.Sex === \"female\").length;\n\nconst class1 = sample.filter(d => d.Pclass == 1).length;\nconst class2 = sample.filter(d => d.Pclass == 2).length;\nconst class3 = sample.filter(d => d.Pclass == 3).length;\n\n// ================= DASHBOARD HTML =================\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>${title}</title>\n<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>\n\n<style>\nbody{\n  margin:0;\n  background:#0f172a;\n  font-family:Segoe UI;\n  color:white;\n}\n\n.dashboard{\n  width:1280px;\n  height:720px;\n  margin:auto;\n  display:grid;\n  grid-template-columns:250px 1fr;\n}\n\n.sidebar{\n  background:#111827;\n  padding:20px;\n}\n\n.sidebar h2{\n  font-size:18px;\n  margin-bottom:30px;\n}\n\n.sidebar p{\n  color:#94a3b8;\n  margin:12px 0;\n}\n\n.main{\n  padding:20px;\n  display:grid;\n  grid-template-rows:auto auto 1fr;\n  gap:15px;\n}\n\n.kpis{\n  display:grid;\n  grid-template-columns:repeat(4,1fr);\n  gap:15px;\n}\n\n.card{\n  background:#1e293b;\n  padding:18px;\n  border-radius:10px;\n  text-align:center;\n}\n\n.card h4{\n  margin:0;\n  font-size:13px;\n  color:#94a3b8;\n}\n\n.card .value{\n  font-size:26px;\n  font-weight:bold;\n  margin-top:6px;\n}\n\n.grid{\n  display:grid;\n  grid-template-columns:1fr 1fr;\n  gap:15px;\n}\n\n.box{\n  background:#1e293b;\n  padding:15px;\n  border-radius:10px;\n}\n\n.box h3{\n  margin-bottom:10px;\n  font-size:15px;\n}\n\ncanvas{\n  background:white;\n  border-radius:6px;\n}\n</style>\n</head>\n\n<body>\n\n<div class=\"dashboard\">\n\n<div class=\"sidebar\">\n<h2>${title}</h2>\n<p>Executive Summary</p>\n<p>Revenue Analysis</p>\n<p>Segmentation</p>\n<p>Risk Analysis</p>\n<p>Forecasting</p>\n</div>\n\n<div class=\"main\">\n\n<div class=\"kpis\">\n  <div class=\"card\">\n    <h4>Total Records</h4>\n    <div class=\"value\">${totalRows}</div>\n  </div>\n  <div class=\"card\">\n    <h4>Survival Rate</h4>\n    <div class=\"value\">${survivalRate}%</div>\n  </div>\n  <div class=\"card\">\n    <h4>Average Fare</h4>\n    <div class=\"value\">$${avgFare}</div>\n  </div>\n  <div class=\"card\">\n    <h4>Forecast</h4>\n    <div class=\"value\">${forecast}</div>\n  </div>\n</div>\n\n<div class=\"grid\">\n\n  <div class=\"box\">\n    <h3>Survival Distribution</h3>\n    <canvas id=\"survivalChart\"></canvas>\n  </div>\n\n  <div class=\"box\">\n    <h3>Gender Distribution</h3>\n    <canvas id=\"genderChart\"></canvas>\n  </div>\n\n  <div class=\"box\">\n    <h3>Passengers by Class</h3>\n    <canvas id=\"classChart\"></canvas>\n  </div>\n\n  <div class=\"box\">\n    <h3>Revenue Overview</h3>\n    <canvas id=\"revenueChart\"></canvas>\n  </div>\n\n</div>\n\n</div>\n</div>\n\n<script>\n\n// Survival Doughnut\nnew Chart(document.getElementById(\"survivalChart\"),{\n  type:\"doughnut\",\n  data:{\n    labels:[\"Survived\",\"Not Survived\"],\n    datasets:[{\n      data:[${survivedCount},${deadCount}],\n      backgroundColor:[\"#22c55e\",\"#ef4444\"]\n    }]\n  },\n  options:{ responsive:false }\n});\n\n// Gender Pie\nnew Chart(document.getElementById(\"genderChart\"),{\n  type:\"pie\",\n  data:{\n    labels:[\"Male\",\"Female\"],\n    datasets:[{\n      data:[${maleCount},${femaleCount}],\n      backgroundColor:[\"#3b82f6\",\"#ec4899\"]\n    }]\n  },\n  options:{ responsive:false }\n});\n\n// Class Bar\nnew Chart(document.getElementById(\"classChart\"),{\n  type:\"bar\",\n  data:{\n    labels:[\"Class 1\",\"Class 2\",\"Class 3\"],\n    datasets:[{\n      label:\"Passengers\",\n      data:[${class1},${class2},${class3}],\n      backgroundColor:\"#6366f1\"\n    }]\n  },\n  options:{\n    responsive:false,\n    plugins:{ legend:{display:false} }\n  }\n});\n\n// Revenue\nnew Chart(document.getElementById(\"revenueChart\"),{\n  type:\"bar\",\n  data:{\n    labels:[\"Average Fare\"],\n    datasets:[{\n      data:[${avgFare}],\n      backgroundColor:\"#f59e0b\"\n    }]\n  },\n  options:{\n    responsive:false,\n    plugins:{ legend:{display:false} }\n  }\n});\n\n</script>\n\n</body>\n</html>\n`;\n\nreturn [{\n  json:{ html },\n  binary:{\n    data:{\n      data:Buffer.from(html),\n      mimeType:\"text/html\",\n      fileName:\"enterprise_powerbi_style_dashboard.html\"\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        192
+      ],
+      "id": "fed9e27e-14c1-4195-b232-ffd79f9ce4a2",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nReceives CSV file upload from the website",
+        "height": 336
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -544,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "310287d2-3207-4ccf-8f04-5d85a1a78032",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nConverts uploaded CSV file into structured JSON data.",
+        "height": 336,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "e474b221-f2dc-4b36-950b-a6f66d66de45",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nAnalyzes CSV data, calculates statistics, detects anomalies, and returns structured JSON summary.",
+        "height": 368,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        128,
+        -176
+      ],
+      "typeVersion": 1,
+      "id": "8bee98cf-1211-4c1e-b8a0-385745234be6",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nGenerates executive-level BI insights and dashboard recommendations from analyzed dataset summary.",
+        "height": 448,
+        "width": 560,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        576,
+        -496
+      ],
+      "typeVersion": 1,
+      "id": "c2c93b1a-9482-473e-9a2b-96a95d579ff3",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nParses AI response into valid JSON and handles errors if the format is invalid.",
+        "height": 368,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1280,
+        -528
+      ],
+      "typeVersion": 1,
+      "id": "fa1c1adc-3de4-4c07-8d9c-d671683b1657",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nCalculates trend using linear regression and predicts the next value for the target column.",
+        "height": 368,
+        "width": 272,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        192,
+        224
+      ],
+      "typeVersion": 1,
+      "id": "eaf9f920-00da-423c-bd8d-3c81aa8472ce",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nCombines data from 3 inputs by position into a single unified output.",
+        "height": 368,
+        "width": 272,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        928,
+        224
+      ],
+      "typeVersion": 1,
+      "id": "edc44341-e9d1-4b81-bbaf-66f40874016f",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nCalculates business KPIs and formats final dashboard metrics for output.",
+        "height": 368,
+        "width": 272,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1328,
+        32
+      ],
+      "typeVersion": 1,
+      "id": "5b89c72a-96cf-4d75-a771-b24a23096b24",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Purpose:\nGenerates final HTML dashboard file and outputs it as downloadable binary.",
+        "height": 368,
+        "width": 272,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1680,
+        32
+      ],
+      "typeVersion": 1,
+      "id": "eadcb7bf-56dd-42f6-a5bd-8116cdb7494e",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        656,
+        -192
+      ],
+      "id": "33588ba7-9da2-42c6-ba27-acc61f4a2a0d",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "xJU5iiBUJo8tG5xG",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code in Python (Beta)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code in Python (Beta)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        []
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e164b3a7-39d9-4828-af3f-fd395e0f2235",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2f92ff0679030816f494bbc70f411d3ce97c99fa2ec2a5cab2309981bcb877ba"
+  },
+  "id": "OxRGl6IxJVjON8tj",
+  "tags": []
+}
